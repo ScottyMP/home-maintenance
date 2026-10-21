@@ -16,6 +16,22 @@
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen pb-24 font-sans antialiased selection:bg-sky-500 selection:text-white">
 
+  <!-- PIN Lock Screen Overlay -->
+  <div id="pinOverlay" class="fixed inset-0 bg-slate-950 z-50 flex flex-col items-center justify-center p-6 space-y-6 hidden">
+    <div class="w-16 h-16 rounded-3xl bg-sky-500/20 text-sky-400 flex items-center justify-center text-3xl font-bold shadow-lg shadow-sky-500/10">🔒</div>
+    <div class="text-center">
+      <h2 class="text-xl font-bold text-white tracking-tight">Home Hub Locked</h2>
+      <p class="text-xs text-slate-400 mt-1">Enter 4-digit household PIN</p>
+    </div>
+    <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" 
+      class="w-44 bg-slate-900 border-2 border-slate-700 focus:border-sky-500 rounded-2xl py-3 text-center text-3xl font-mono text-white tracking-[0.4em] outline-none transition">
+    <div id="pinError" class="text-rose-400 text-xs font-semibold hidden">Incorrect PIN. Try again.</div>
+    <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer pt-2">
+      <input type="checkbox" id="rememberPinCheck" checked class="rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0 w-4 h-4">
+      Remember this phone
+    </label>
+  </div>
+
   <!-- Header -->
   <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
     <div class="flex items-center gap-2">
@@ -39,6 +55,12 @@
           <i data-lucide="plus" class="w-4 h-4"></i> Add Task
         </button>
       </div>
+
+      <!-- Quick Filter Chips for Cycles -->
+      <div id="taskFilterContainer" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
+        <button onclick="filterTasks('ALL')" class="task-chip px-3 py-1 rounded-full bg-sky-600 text-white font-semibold whitespace-nowrap">All Systems</button>
+      </div>
+
       <div id="taskList" class="space-y-3">
         <div class="text-center py-12 text-slate-500 text-sm animate-pulse">Connecting to systems...</div>
       </div>
@@ -74,7 +96,7 @@
         </button>
       </div>
       <div id="historyFilterContainer" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
-        <button onclick="filterHistory('ALL')" class="history-chip px-3 py-1 rounded-full bg-sky-600 text-white font-semibold whitespace-nowrap" data-filter="ALL">All Systems</button>
+        <button onclick="filterHistory('ALL')" class="history-chip px-3 py-1 rounded-full bg-sky-600 text-white font-semibold whitespace-nowrap">All Systems</button>
       </div>
       <div id="historyList" class="space-y-3">
         <div class="text-center py-12 text-slate-500 text-sm">Loading service history...</div>
@@ -91,15 +113,16 @@
       </div>
     </section>
 
-    <!-- VIEW 5: SETTINGS -->
+    <!-- VIEW 5: SETTINGS / TOOLS -->
     <section id="viewSettings" class="space-y-4 hidden">
       <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-3">
-        <h3 class="font-bold text-white text-sm">System Tools</h3>
-        <p class="text-xs text-slate-400">Populate default starter profiles for whole-house water filtration, 30-day furnace filters, and hot water flushing.</p>
-        <button id="btnSeedData" class="w-full py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm font-semibold transition active:scale-95">
-          Reset / Load Starter Templates
+        <h3 class="font-bold text-white text-sm">Household Privacy</h3>
+        <p class="text-xs text-slate-400">Lock the app on this device now. Re-entering PIN 1989 will be required.</p>
+        <button onclick="lockAppNow()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-semibold transition active:scale-95 flex items-center justify-center gap-2">
+          <i data-lucide="lock" class="w-3.5 h-3.5 text-sky-400"></i> Lock Hub Now
         </button>
       </div>
+
       <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-3">
         <h3 class="font-bold text-white text-sm">Audit & Proof Export</h3>
         <p class="text-xs text-slate-400">Export the entire maintenance history into a clean printable report or PDF file for warranty or home insurance proof.</p>
@@ -107,10 +130,18 @@
           <i data-lucide="download" class="w-4 h-4"></i> Export Printable Binder
         </button>
       </div>
+
+      <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <h3 class="font-bold text-white text-sm">Starter Profiles</h3>
+        <p class="text-xs text-slate-400">Reset default profiles for Whole-House Water, 30-Day Furnace Filter, and Hot Water Tank.</p>
+        <button id="btnSeedData" class="w-full py-2.5 bg-slate-700/60 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition active:scale-95">
+          Populate Starter Equipment
+        </button>
+      </div>
     </section>
   </main>
 
-  <!-- BOTTOM SHEET 1: TASK DRAWER -->
+  <!-- BOTTOM SHEET 1: ADD / EDIT TASK -->
   <div id="taskDrawer" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end justify-center hidden">
     <div class="bg-slate-800 border-t border-slate-700 w-full max-w-md rounded-t-3xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto pb-10">
       <div class="flex justify-between items-center pb-2 border-b border-slate-700/60">
@@ -118,52 +149,61 @@
         <button onclick="closeTaskDrawer()" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
       </div>
       <input type="hidden" id="editTaskId">
+      
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Equipment / System</label>
-        <input type="text" id="taskAssetInput" placeholder="e.g. Carrier HVAC, iSpring Filter, Septic" 
+        <input type="text" id="taskAssetInput" placeholder="e.g. HVAC, Water Filter, Septic" 
           class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white">
         <div class="flex gap-1.5 flex-wrap mt-1.5">
           <button type="button" onclick="setTaskAsset('HVAC Air Handler')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">HVAC</button>
-          <button type="button" onclick="setTaskAsset('Whole-House Water System')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Water</button>
-          <button type="button" onclick="setTaskAsset('Hot Water Tank')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Water Tank</button>
-          <button type="button" onclick="setTaskAsset('Septic & Drainage')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Septic</button>
+          <button type="button" onclick="setTaskAsset('Whole-House Water System')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Water Filter</button>
+          <button type="button" onclick="setTaskAsset('Hot Water Tank')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Hot Water Tank</button>
+          <button type="button" onclick="setTaskAsset('Septic & Sump')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Septic / Sump</button>
         </div>
       </div>
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Task Action</label>
         <input type="text" id="taskTitleInput" placeholder="e.g. Replace Media Filter, Flush Tank" 
           class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-medium">
       </div>
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Repeat Cycle (Days)</label>
         <div class="flex items-center gap-2">
           <input type="number" id="taskIntervalInput" placeholder="30" 
-            class="w-24 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-bold text-center">
+            class="w-20 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-bold text-center">
           <div class="flex gap-1.5 flex-wrap">
-            <button type="button" onclick="setTaskInterval(30)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 text-[11px] font-semibold text-white">30d</button>
-            <button type="button" onclick="setTaskInterval(60)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 text-[11px] font-semibold text-white">60d</button>
-            <button type="button" onclick="setTaskInterval(90)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 text-[11px] font-semibold text-white">90d</button>
-            <button type="button" onclick="setTaskInterval(180)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 text-[11px] font-semibold text-white">6 Mo</button>
+            <button type="button" onclick="setTaskInterval(30)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[11px] font-semibold text-white">30d</button>
+            <button type="button" onclick="setTaskInterval(60)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[11px] font-semibold text-white">60d</button>
+            <button type="button" onclick="setTaskInterval(90)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[11px] font-semibold text-white">90d</button>
+            <button type="button" onclick="setTaskInterval(180)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[11px] font-semibold text-white">6 Mo</button>
+            <button type="button" onclick="setTaskInterval(365)" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[11px] font-semibold text-white">1 Yr</button>
           </div>
         </div>
       </div>
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Next Due Date</label>
         <input type="date" id="taskNextDueInput" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
       </div>
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Linked Spare Part (Optional)</label>
         <select id="taskLinkedInventorySelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white">
           <option value="">No part required</option>
         </select>
       </div>
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Instructions / Notes</label>
-        <input type="text" id="taskMemoInput" placeholder="e.g. Check airflow arrow" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white">
+        <input type="text" id="taskMemoInput" placeholder="e.g. Check airflow arrow points to blower" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white">
       </div>
+
       <div class="pt-2 flex items-center gap-2">
         <button id="btnDeleteTask" onclick="deleteCurrentTask()" type="button" class="hidden px-4 py-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold rounded-xl text-xs">Delete</button>
-        <button onclick="saveTaskFromDrawer()" type="button" class="flex-1 py-3 bg-sky-600 text-white font-bold rounded-xl text-xs">Save Task</button>
+        <button id="btnCloneTask" onclick="cloneCurrentTask()" type="button" class="hidden px-3.5 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold rounded-xl text-xs">Duplicate</button>
+        <button onclick="saveTaskFromDrawer()" type="button" class="flex-1 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs transition active:scale-95">Save Task</button>
       </div>
     </div>
   </div>
@@ -176,59 +216,67 @@
         <button onclick="closeInventoryDrawer()" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
       </div>
       <input type="hidden" id="editInventoryId">
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Part Name</label>
         <input type="text" id="invNameInput" placeholder="e.g. 16x25x4 MERV 11 Filter" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-medium">
       </div>
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Equipment Fit</label>
-        <input type="text" id="invFitInput" placeholder="e.g. Carrier Plenum" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+        <input type="text" id="invFitInput" placeholder="e.g. Carrier Plenum, iSpring Housing 1" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
       </div>
+
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">Current Stock</label>
           <div class="flex items-center gap-1">
-            <button type="button" onclick="adjustDrawerStock(-1)" class="w-8 h-8 rounded-lg bg-slate-700 text-white font-bold text-sm">-</button>
+            <button type="button" onclick="adjustDrawerStock(-1)" class="w-8 h-8 rounded-lg bg-slate-700 text-white font-bold text-sm active:scale-90">-</button>
             <input type="number" id="invQtyInput" value="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg py-1.5 text-xs text-white font-bold text-center">
-            <button type="button" onclick="adjustDrawerStock(1)" class="w-8 h-8 rounded-lg bg-slate-700 text-white font-bold text-sm">+</button>
+            <button type="button" onclick="adjustDrawerStock(1)" class="w-8 h-8 rounded-lg bg-slate-700 text-white font-bold text-sm active:scale-90">+</button>
           </div>
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">Min Par</label>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Min Reorder Par</label>
           <input type="number" id="invParInput" value="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg py-1.5 text-xs text-white font-bold text-center">
         </div>
       </div>
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Location</label>
         <input type="text" id="invLocationInput" placeholder="e.g. Utility Room > Shelf B" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
         <div class="flex gap-1.5 flex-wrap mt-1.5">
           <button type="button" onclick="setInvLocation('Utility Room > Overhead Rack')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Overhead Rack</button>
           <button type="button" onclick="setInvLocation('Utility Room > Shelf B')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Shelf B</button>
+          <button type="button" onclick="setInvLocation('Basement Workbench')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Workbench</button>
           <button type="button" onclick="setInvLocation('Garage')" class="px-2 py-0.5 rounded bg-slate-700/60 text-[10px] text-slate-300">Garage</button>
         </div>
       </div>
+
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">Vendor</label>
-          <input type="text" id="invVendorInput" placeholder="Canadian Tire" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Target Vendor</label>
+          <input type="text" id="invVendorInput" placeholder="Canadian Tire / Costco" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">Target CAD</label>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Target Price (CAD)</label>
           <input type="number" step="0.01" id="invPriceInput" placeholder="29.99" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
         </div>
       </div>
+
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">Barcode / UPC</label>
         <input type="text" id="invBarcodeInput" placeholder="Scan or enter UPC" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono">
       </div>
+
       <div class="pt-2 flex items-center gap-2">
         <button id="btnDeleteInventory" onclick="deleteCurrentInventory()" type="button" class="hidden px-4 py-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold rounded-xl text-xs">Delete</button>
-        <button onclick="saveInventoryFromDrawer()" type="button" class="flex-1 py-3 bg-sky-600 text-white font-bold rounded-xl text-xs">Save Part</button>
+        <button onclick="saveInventoryFromDrawer()" type="button" class="flex-1 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs transition active:scale-95">Save Part</button>
       </div>
     </div>
   </div>
 
-  <!-- SERVICE MODAL -->
+  <!-- SERVICE COMPLETION MODAL -->
   <div id="taskModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end justify-center hidden">
     <div class="bg-slate-800 border-t border-slate-700 w-full max-w-md rounded-t-3xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto pb-10">
       <div class="flex justify-between items-start pb-2 border-b border-slate-700/60">
@@ -238,16 +286,32 @@
         </div>
         <button onclick="closeModal()" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
       </div>
+
+      <!-- Quick Completion Date Selector -->
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Service Completed When?</label>
+        <div class="flex gap-2">
+          <button type="button" onclick="setServiceDate('today')" id="btnDateToday" class="flex-1 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold">Today</button>
+          <button type="button" onclick="setServiceDate('yesterday')" id="btnDateYesterday" class="flex-1 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">Yesterday</button>
+        </div>
+        <input type="date" id="modalServiceDate" class="w-full mt-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white">
+      </div>
+
       <div id="modalConsumableNotice" class="p-3 bg-slate-900/70 border border-slate-700 rounded-xl text-xs space-y-1"></div>
+
       <div>
-        <label class="block text-xs font-semibold text-slate-300 mb-1">Condition Photo (Proof)</label>
-        <input type="file" id="modalPhotoInput" accept="image/*" capture="environment" class="w-full text-xs text-slate-400 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-700 file:text-sky-400">
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Attach Condition / Filter Photo (Proof)</label>
+        <input type="file" id="modalPhotoInput" accept="image/*" capture="environment" 
+          class="w-full text-xs text-slate-400 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-700 file:text-sky-400">
       </div>
+
       <div>
-        <label class="block text-xs font-semibold text-slate-300 mb-1">Service Notes / Readings</label>
-        <input type="text" id="modalNotesInput" placeholder="e.g. 54 PSI, replaced sediment cartridge" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white">
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Service Notes / Gauge Readings</label>
+        <input type="text" id="modalNotesInput" placeholder="e.g. 54 PSI, replaced sediment cartridge" 
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white">
       </div>
-      <button id="btnConfirmComplete" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition flex items-center justify-center gap-2">
+
+      <button id="btnConfirmComplete" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition flex items-center justify-center gap-2 active:scale-95">
         <span>Log Completion & Reset Cycle</span>
       </button>
     </div>
