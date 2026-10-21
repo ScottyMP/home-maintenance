@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Home Systems Hub</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0F172A">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <!-- Free Firebase Compat CDNs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen pb-24 font-sans antialiased selection:bg-sky-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-lg">⚙️</div>
+      <h1 class="text-lg font-bold text-white tracking-tight">Home Hub</h1>
+    </div>
+    <div id="connectionStatus" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Live Sync
+    </div>
+  </header>
+
+  <!-- Views -->
+  <main class="max-w-md mx-auto p-4">
+    <!-- VIEW 1: TASKS -->
+    <section id="viewTasks" class="space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Maintenance Cycles</h2>
+        <span id="taskCountBadge" class="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-medium">0 Active</span>
+      </div>
+      <div id="taskList" class="space-y-3">
+        <div class="text-center py-12 text-slate-500 text-sm animate-pulse">Connecting to systems...</div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: INVENTORY -->
+    <section id="viewInventory" class="space-y-4 hidden">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Spares & Consumables</h2>
+        <span id="reorderAlertBadge" class="hidden text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-semibold">Needs Buying</span>
+      </div>
+      <div class="relative">
+        <input type="text" id="inventorySearchInput" placeholder="Search filter, battery, location..." 
+          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-sky-500">
+      </div>
+      <div id="inventoryList" class="space-y-3"></div>
+    </section>
+
+    <!-- VIEW 3: SCANNER -->
+    <section id="viewScanner" class="space-y-4 hidden">
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 text-center">
+        <h3 class="text-base font-bold text-white mb-1">Aisle UPC Scanner</h3>
+        <p class="text-xs text-slate-400 mb-4">Point camera at product barcode to check home stock.</p>
+        <div id="reader" class="overflow-hidden rounded-xl bg-black border border-slate-700 min-h-[260px]"></div>
+        <div id="scanResult" class="mt-4 hidden p-4 bg-slate-900/90 rounded-xl border border-slate-700 text-left"></div>
+      </div>
+    </section>
+
+    <!-- VIEW 4: SETTINGS -->
+    <section id="viewSettings" class="space-y-4 hidden">
+      <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <h3 class="font-bold text-white text-sm">System Tools</h3>
+        <p class="text-xs text-slate-400">Load starter systems: Whole-House Water (iSpring), Furnace (16x25x4), and Hot Water Tank.</p>
+        <button id="btnSeedData" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-sm font-semibold transition active:scale-95">
+          Load Starter Equipment & Spares
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal -->
+  <div id="taskModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center hidden p-4">
+    <div class="bg-slate-800 border border-slate-700 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
+      <div class="flex justify-between items-start">
+        <div>
+          <h3 id="modalTaskTitle" class="font-bold text-white text-base">Complete Service</h3>
+          <p id="modalAssetSub" class="text-xs text-slate-400 mt-0.5"></p>
+        </div>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white p-1">✕</button>
+      </div>
+
+      <div id="modalConsumableNotice" class="p-3 bg-slate-900/70 border border-slate-700 rounded-xl text-xs space-y-1"></div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Attach Condition / Filter Photo</label>
+        <input type="file" id="modalPhotoInput" accept="image/*" capture="environment" 
+          class="w-full text-xs text-slate-400 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-700 file:text-sky-400">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Service Notes / Pressure Reading</label>
+        <input type="text" id="modalNotesInput" placeholder="e.g. 54 PSI, replaced sediment filter" 
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+      </div>
+
+      <button id="btnConfirmComplete" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition flex items-center justify-center gap-2">
+        <span>Log Completion (1-Tap)</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-6 py-2.5 flex justify-between items-center z-40 max-w-md mx-auto">
+    <button onclick="switchTab('tasks')" id="tabBtn-tasks" class="flex flex-col items-center gap-1 text-sky-400">
+      <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+      <span class="text-[10px] font-semibold">Cycles</span>
+    </button>
+    <button onclick="switchTab('inventory')" id="tabBtn-inventory" class="flex flex-col items-center gap-1 text-slate-400">
+      <i data-lucide="package" class="w-5 h-5"></i>
+      <span class="text-[10px] font-semibold">Spares</span>
+    </button>
+    <button onclick="switchTab('scanner')" id="tabBtn-scanner" class="flex flex-col items-center gap-1 text-slate-400">
+      <i data-lucide="scan-barcode" class="w-5 h-5"></i>
+      <span class="text-[10px] font-semibold">Scan</span>
+    </button>
+    <button onclick="switchTab('settings')" id="tabBtn-settings" class="flex flex-col items-center gap-1 text-slate-400">
+      <i data-lucide="settings" class="w-5 h-5"></i>
+      <span class="text-[10px] font-semibold">Settings</span>
+    </button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
