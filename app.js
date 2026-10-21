@@ -13,7 +13,6 @@ if (!firebase.apps.length) {
 }
 
 const db = firebase.firestore();
-db.enablePersistence().catch(() => {});
 
 // Application State
 let activeTasks = [];
@@ -23,31 +22,48 @@ let selectedTask = null;
 let html5QrCode = null;
 let currentHistoryFilter = 'ALL';
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+// 2. ERROR REPORTING BANNER (No more silent hangs)
+function showFirebaseError(source, msg) {
+  const container = document.getElementById('taskList');
+  if (container) {
+    container.innerHTML = `
+      <div class="p-4 bg-rose-500/20 border border-rose-500/40 rounded-2xl text-xs text-rose-200 space-y-1">
+        <p class="font-bold text-rose-300">Firebase Sync Error (${source}):</p>
+        <p class="font-mono text-[11px]">${msg}</p>
+      </div>`;
+  }
 }
 
-// 2. REAL-TIME DATA LISTENERS
-db.collection('maintenance_tasks').onSnapshot((snapshot) => {
-  activeTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  renderTasks();
-  updateLinkedInventoryDropdown();
-});
+// 3. REAL-TIME DATA LISTENERS (With Active Error Traps)
+db.collection('maintenance_tasks').onSnapshot(
+  (snapshot) => {
+    activeTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    renderTasks();
+    updateLinkedInventoryDropdown();
+  },
+  (error) => showFirebaseError('Tasks', error.message)
+);
 
-db.collection('inventory_items').onSnapshot((snapshot) => {
-  inventoryItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  renderInventory();
-  renderTasks();
-  updateLinkedInventoryDropdown();
-});
+db.collection('inventory_items').onSnapshot(
+  (snapshot) => {
+    inventoryItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    renderInventory();
+    renderTasks();
+    updateLinkedInventoryDropdown();
+  },
+  (error) => showFirebaseError('Inventory', error.message)
+);
 
-db.collection('task_logs').onSnapshot((snapshot) => {
-  maintenanceLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  renderHistory();
-  renderTasks();
-});
+db.collection('task_logs').onSnapshot(
+  (snapshot) => {
+    maintenanceLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    renderHistory();
+    renderTasks();
+  },
+  (error) => showFirebaseError('Logs', error.message)
+);
 
-// 3. UI RENDERING: MAINTENANCE CYCLES (TASKS)
+// 4. UI RENDERING: MAINTENANCE CYCLES (TASKS)
 function renderTasks() {
   const container = document.getElementById('taskList');
   const countBadge = document.getElementById('taskCountBadge');
@@ -57,11 +73,10 @@ function renderTasks() {
     container.innerHTML = `
       <div class="text-center py-10 bg-slate-800/40 rounded-2xl border border-slate-800 p-6">
         <p class="text-slate-400 text-sm">No maintenance tasks configured.</p>
-        <button onclick="openTaskDrawer()" class="mt-3 px-4 py-2 bg-sky-600 rounded-xl text-xs font-bold text-white">
-          + Add First Task
-        </button>
+        <p class="text-xs text-slate-500 mt-1">Tap "+ Add Task" above or load standard equipment in Tools.</p>
       </div>`;
     if (countBadge) countBadge.innerText = '0 Active';
+    lucide.createIcons();
     return;
   }
 
@@ -93,7 +108,6 @@ function renderTasks() {
         </div>`;
     }
 
-    // Find most recent log for this task
     const recentLog = maintenanceLogs
       .filter(l => l.taskId === task.id || l.taskTitle === task.title)
       .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate))[0];
@@ -106,7 +120,7 @@ function renderTasks() {
       <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 shadow-sm hover:border-slate-600 transition">
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1">
-            <span class="text-[10px] font-bold text-sky-400 uppercase tracking-wide">${task.assetName}</span>
+            <span class="text-[10px] font-bold text-sky-400 uppercase tracking-wide">${task.assetName || 'General'}</span>
             <h3 class="font-bold text-white text-sm leading-snug">${task.title}</h3>
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
@@ -134,7 +148,7 @@ function renderTasks() {
   lucide.createIcons();
 }
 
-// 4. UI RENDERING: SERVICE PROOF LEDGER (HISTORY)
+// 5. UI RENDERING: SERVICE PROOF LEDGER (HISTORY)
 function renderHistory() {
   const container = document.getElementById('historyList');
   const countBadge = document.getElementById('logCountBadge');
@@ -143,7 +157,6 @@ function renderHistory() {
 
   if (countBadge) countBadge.innerText = `${maintenanceLogs.length} Records`;
 
-  // Render Asset Filter Chips
   if (filterBox) {
     const assets = ['ALL', ...new Set(maintenanceLogs.map(l => l.assetName).filter(Boolean))];
     filterBox.innerHTML = assets.map(asset => `
@@ -162,7 +175,7 @@ function renderHistory() {
     container.innerHTML = `
       <div class="text-center py-10 bg-slate-800/40 rounded-2xl border border-slate-800 p-6">
         <p class="text-slate-400 text-sm">No service entries match filter.</p>
-        <p class="text-xs text-slate-500 mt-1">Tap "Log Service" on any maintenance task to add proof.</p>
+        <p class="text-xs text-slate-500 mt-1">Tap "Log Service" on any maintenance task to record proof.</p>
       </div>`;
     return;
   }
@@ -233,7 +246,7 @@ window.deleteLogEntry = async function(id) {
   await db.collection('task_logs').doc(id).delete();
 };
 
-// 5. PRINTABLE SERVICE BINDER EXPORT (FOR INSURANCE / SALE)
+// 6. PRINTABLE SERVICE BINDER EXPORT
 window.exportProofBinder = function() {
   if (maintenanceLogs.length === 0) {
     alert('No maintenance history logged yet to export.');
@@ -288,7 +301,7 @@ window.exportProofBinder = function() {
   setTimeout(() => printWindow.print(), 500);
 };
 
-// 6. UI RENDERING: INVENTORY (SPARES)
+// 7. UI RENDERING: INVENTORY (SPARES)
 function renderInventory() {
   const container = document.getElementById('inventoryList');
   const alertBadge = document.getElementById('reorderAlertBadge');
@@ -357,7 +370,7 @@ window.adjustInventory = async function(id, delta) {
   await db.collection('inventory_items').doc(id).update({ qtyOnHand: newQty });
 };
 
-// 7. TASK BOTTOM DRAWER LOGIC (IN-APP ADD / EDIT)
+// 8. TASK DRAWER (IN-APP ADD / EDIT)
 window.openTaskDrawer = function(taskId = null) {
   const drawer = document.getElementById('taskDrawer');
   const title = document.getElementById('taskDrawerTitle');
@@ -461,7 +474,7 @@ function updateLinkedInventoryDropdown() {
   select.value = currentVal;
 }
 
-// 8. INVENTORY BOTTOM DRAWER LOGIC (IN-APP ADD / EDIT)
+// 9. INVENTORY DRAWER (IN-APP ADD / EDIT)
 window.openInventoryDrawer = function(itemId = null) {
   const drawer = document.getElementById('inventoryDrawer');
   const title = document.getElementById('inventoryDrawerTitle');
@@ -476,4 +489,356 @@ window.openInventoryDrawer = function(itemId = null) {
     document.getElementById('invFitInput').value = item.unitFit || '';
     document.getElementById('invQtyInput').value = item.qtyOnHand || 0;
     document.getElementById('invParInput').value = item.qtyMinPar || 1;
-    document.getElementById('invLocationInput')
+    document.getElementById('invLocationInput').value = item.location || '';
+    document.getElementById('invVendorInput').value = item.vendor || '';
+    document.getElementById('invPriceInput').value = item.targetPriceCad || '';
+    document.getElementById('invBarcodeInput').value = item.barcode || '';
+    deleteBtn.classList.remove('hidden');
+  } else {
+    title.innerText = 'New Spare Part';
+    document.getElementById('editInventoryId').value = '';
+    document.getElementById('invNameInput').value = '';
+    document.getElementById('invFitInput').value = '';
+    document.getElementById('invQtyInput').value = '1';
+    document.getElementById('invParInput').value = '1';
+    document.getElementById('invLocationInput').value = 'Utility Room > Overhead Rack';
+    document.getElementById('invVendorInput').value = 'Canadian Tire';
+    document.getElementById('invPriceInput').value = '';
+    document.getElementById('invBarcodeInput').value = '';
+    deleteBtn.classList.add('hidden');
+  }
+
+  drawer.classList.remove('hidden');
+};
+
+window.closeInventoryDrawer = function() {
+  document.getElementById('inventoryDrawer').classList.add('hidden');
+};
+
+window.setInvLocation = function(val) {
+  document.getElementById('invLocationInput').value = val;
+};
+
+window.adjustDrawerStock = function(delta) {
+  const input = document.getElementById('invQtyInput');
+  input.value = Math.max(0, (parseInt(input.value) || 0) + delta);
+};
+
+window.saveInventoryFromDrawer = async function() {
+  const id = document.getElementById('editInventoryId').value;
+  const name = document.getElementById('invNameInput').value.trim();
+  const unitFit = document.getElementById('invFitInput').value.trim();
+  const qtyOnHand = parseInt(document.getElementById('invQtyInput').value) || 0;
+  const qtyMinPar = parseInt(document.getElementById('invParInput').value) || 1;
+  const location = document.getElementById('invLocationInput').value.trim() || 'Utility Room';
+  const vendor = document.getElementById('invVendorInput').value.trim() || 'Local';
+  const targetPriceCad = parseFloat(document.getElementById('invPriceInput').value) || 0;
+  const barcode = document.getElementById('invBarcodeInput').value.trim();
+
+  if (!name) {
+    alert('Please enter a part name.');
+    return;
+  }
+
+  const payload = {
+    name, unitFit, qtyOnHand, qtyMinPar, location, vendor, targetPriceCad, barcode
+  };
+
+  if (id) {
+    await db.collection('inventory_items').doc(id).update(payload);
+  } else {
+    await db.collection('inventory_items').add(payload);
+  }
+
+  closeInventoryDrawer();
+};
+
+window.deleteCurrentInventory = async function() {
+  const id = document.getElementById('editInventoryId').value;
+  if (!id) return;
+  if (!confirm('Permanently delete this spare part from stock?')) return;
+  await db.collection('inventory_items').doc(id).delete();
+  closeInventoryDrawer();
+};
+
+// 10. COMPLETE SERVICE WORKFLOW
+window.openCompleteModal = function(taskId) {
+  selectedTask = activeTasks.find(t => t.id === taskId);
+  if (!selectedTask) return;
+
+  document.getElementById('modalTaskTitle').innerText = selectedTask.title;
+  document.getElementById('modalAssetSub').innerText = selectedTask.assetName;
+
+  const notice = document.getElementById('modalConsumableNotice');
+  const linked = inventoryItems.find(i => i.id === selectedTask.linkedInventoryId);
+
+  if (linked) {
+    const qty = selectedTask.qtyRequired || 1;
+    notice.innerHTML = `
+      <div class="text-sky-300 font-semibold">📦 Uses 1x ${linked.name}</div>
+      <div class="text-slate-400">Stock will auto-decrement from ${linked.qtyOnHand} → ${Math.max(0, linked.qtyOnHand - qty)} (${linked.location})</div>
+    `;
+    notice.classList.remove('hidden');
+  } else {
+    notice.classList.add('hidden');
+  }
+
+  document.getElementById('taskModal').classList.remove('hidden');
+};
+
+window.closeModal = function() {
+  document.getElementById('taskModal').classList.add('hidden');
+  document.getElementById('modalNotesInput').value = '';
+  document.getElementById('modalPhotoInput').value = '';
+  selectedTask = null;
+};
+
+function compressImage(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height && width > maxDim) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else if (height > maxDim) {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('btnConfirmComplete')?.addEventListener('click', async () => {
+  if (!selectedTask) return;
+  const btn = document.getElementById('btnConfirmComplete');
+  btn.innerText = 'Logging...';
+  btn.disabled = true;
+
+  try {
+    const today = new Date();
+    const nextDate = new Date();
+    nextDate.setDate(today.getDate() + (selectedTask.intervalDays || 30));
+
+    let photoData = null;
+    const file = document.getElementById('modalPhotoInput').files[0];
+    if (file) {
+      photoData = await compressImage(file);
+    }
+
+    const linked = inventoryItems.find(i => i.id === selectedTask.linkedInventoryId);
+
+    await db.collection('task_logs').add({
+      taskId: selectedTask.id,
+      taskTitle: selectedTask.title,
+      assetName: selectedTask.assetName,
+      completedDate: today.toISOString(),
+      consumedPartName: linked ? linked.name : null,
+      notes: document.getElementById('modalNotesInput').value,
+      photoBase64: photoData
+    });
+
+    await db.collection('maintenance_tasks').doc(selectedTask.id).update({
+      lastCompletedDate: today.toISOString(),
+      nextDueDate: nextDate.toISOString()
+    });
+
+    if (selectedTask.linkedInventoryId) {
+      const itemRef = db.collection('inventory_items').doc(selectedTask.linkedInventoryId);
+      await db.runTransaction(async (transaction) => {
+        const itemDoc = await transaction.get(itemRef);
+        if (itemDoc.exists) {
+          const current = itemDoc.data().qtyOnHand || 0;
+          const req = selectedTask.qtyRequired || 1;
+          transaction.update(itemRef, { qtyOnHand: Math.max(0, current - req) });
+        }
+      });
+    }
+
+    closeModal();
+  } catch (err) {
+    alert('Error logging service: ' + err.message);
+  } finally {
+    btn.innerText = 'Log Completion & Reset Cycle';
+    btn.disabled = false;
+  }
+});
+
+// 11. LIGHTBOX VIEWER
+window.openPhotoLightbox = function(src) {
+  document.getElementById('lightboxImg').src = src;
+  document.getElementById('photoLightbox').classList.remove('hidden');
+};
+
+window.closePhotoLightbox = function() {
+  document.getElementById('photoLightbox').classList.add('hidden');
+  document.getElementById('lightboxImg').src = '';
+};
+
+// 12. BARCODE SCANNER & PAIRING
+function startScanner() {
+  if (html5QrCode) return;
+  html5QrCode = new Html5Qrcode("reader");
+  html5QrCode.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: { width: 250, height: 180 } },
+    (decodedText) => {
+      handleScannedBarcode(decodedText);
+      html5QrCode.stop().then(() => { html5QrCode = null; });
+    },
+    () => {}
+  );
+}
+
+function handleScannedBarcode(barcode) {
+  const resultDiv = document.getElementById('scanResult');
+  resultDiv.classList.remove('hidden');
+
+  const match = inventoryItems.find(i => i.barcode === barcode);
+  if (match) {
+    resultDiv.innerHTML = `
+      <div class="space-y-1">
+        <span class="text-xs font-bold text-emerald-400">✓ ITEM MATCHED</span>
+        <h4 class="font-bold text-white text-sm">${match.name}</h4>
+        <p class="text-xs text-slate-300">Stock at Home: <b class="text-white">${match.qtyOnHand}</b> (Min Par: ${match.qtyMinPar})</p>
+        <p class="text-xs text-slate-400">Location: ${match.location}</p>
+        <button onclick="adjustInventory('${match.id}', 1)" class="mt-2 w-full py-2 bg-sky-600 rounded-lg text-white font-bold text-xs">
+          +1 Restock (${match.qtyOnHand + 1})
+        </button>
+      </div>`;
+  } else {
+    resultDiv.innerHTML = `
+      <div class="space-y-2">
+        <span class="text-xs font-bold text-amber-400">UNMAPPED BARCODE</span>
+        <p class="text-xs font-mono text-slate-300">${barcode}</p>
+        <p class="text-xs text-slate-400">What would you like to pair this barcode to?</p>
+        <div class="pt-1 flex gap-2">
+          <button onclick="pairBarcodeToNew('${barcode}')" class="flex-1 py-2 bg-sky-600 rounded-lg text-white font-bold text-xs">
+            + Create New Part
+          </button>
+        </div>
+      </div>`;
+  }
+}
+
+window.pairBarcodeToNew = function(barcode) {
+  openInventoryDrawer();
+  document.getElementById('invBarcodeInput').value = barcode;
+  switchTab('inventory');
+};
+
+// 13. TAB NAVIGATION
+window.switchTab = function(tabName) {
+  ['tasks', 'inventory', 'history', 'scanner', 'settings'].forEach(t => {
+    document.getElementById(`view${t.charAt(0).toUpperCase() + t.slice(1)}`)?.classList.add('hidden');
+    const btn = document.getElementById(`tabBtn-${t}`);
+    if (btn) {
+      btn.classList.remove('text-sky-400');
+      btn.classList.add('text-slate-400');
+    }
+  });
+
+  document.getElementById(`view${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`)?.classList.remove('hidden');
+  const activeBtn = document.getElementById(`tabBtn-${tabName}`);
+  if (activeBtn) {
+    activeBtn.classList.remove('text-slate-400');
+    activeBtn.classList.add('text-sky-400');
+  }
+
+  if (tabName === 'scanner') {
+    startScanner();
+  } else if (html5QrCode) {
+    html5QrCode.stop().then(() => { html5QrCode = null; });
+  }
+};
+
+document.getElementById('inventorySearchInput')?.addEventListener('input', renderInventory);
+
+// 14. SEED STARTER EQUIPMENT (Tools Tab)
+document.getElementById('btnSeedData')?.addEventListener('click', async () => {
+  if (!confirm('Populate starter equipment and spare parts?')) return;
+  const batch = db.batch();
+
+  const f1 = db.collection('inventory_items').doc('item-furnace-filter');
+  batch.set(f1, {
+    name: '16x25x4 Furnace Filter (MERV 11)',
+    unitFit: 'Carrier Infinity Plenum',
+    qtyOnHand: 1,
+    qtyMinPar: 1,
+    location: 'Utility Room > Overhead Rack',
+    vendor: 'Canadian Tire',
+    targetPriceCad: 29.99,
+    barcode: '012345678905'
+  });
+
+  const f2 = db.collection('inventory_items').doc('item-ispring-sediment');
+  batch.set(f2, {
+    name: 'Stage 1 Sediment Filter (4.5"x10" 5µm)',
+    unitFit: 'iSpring WGB32BM Housing 1',
+    qtyOnHand: 2,
+    qtyMinPar: 2,
+    location: 'Utility Room > Shelf B > Bin 2',
+    vendor: 'Amazon',
+    targetPriceCad: 18.99,
+    barcode: '078912345678'
+  });
+
+  const t1 = db.collection('maintenance_tasks').doc('task-sediment-filter');
+  batch.set(t1, {
+    assetName: 'Whole-House Water System',
+    title: 'Replace Stage 1 Sediment Cartridge',
+    intervalDays: 90,
+    lastCompletedDate: new Date().toISOString(),
+    nextDueDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+    linkedInventoryId: 'item-ispring-sediment',
+    qtyRequired: 1,
+    memo: 'Shut inlet valve first. Release pressure button on top of cap.'
+  });
+
+  const t2 = db.collection('maintenance_tasks').doc('task-furnace-filter');
+  batch.set(t2, {
+    assetName: 'HVAC Air Handler',
+    title: 'Replace 16x25x4 Media Filter',
+    intervalDays: 30,
+    lastCompletedDate: new Date().toISOString(),
+    nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    linkedInventoryId: 'item-furnace-filter',
+    qtyRequired: 1,
+    memo: 'Check airflow arrow points toward blower cabinet.'
+  });
+
+  const t3 = db.collection('maintenance_tasks').doc('task-flush-water-tank');
+  batch.set(t3, {
+    assetName: 'Hot Water Tank',
+    title: 'Drain & Flush Sediment',
+    intervalDays: 180,
+    lastCompletedDate: new Date().toISOString(),
+    nextDueDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString(),
+    memo: 'Connect 3/4" hose, drain 5 gallons into bucket until clear.'
+  });
+
+  await batch.commit();
+  alert('Starter profiles loaded!');
+  switchTab('tasks');
+});
+
+// 15. IMMEDIATE INITIAL RENDER (Never wait on network)
+renderTasks();
+renderInventory();
+renderHistory();
+lucide.createIcons();
