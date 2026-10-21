@@ -1,4 +1,53 @@
-// 1. FIREBASE CONFIGURATION
+// ==========================================
+// 1. HOUSEHOLD PIN CONFIGURATION
+// ==========================================
+const HOUSEHOLD_PIN = "1989";
+
+function initPinLock() {
+  const overlay = document.getElementById('pinOverlay');
+  const input = document.getElementById('pinInput');
+  const errorMsg = document.getElementById('pinError');
+  const rememberCheck = document.getElementById('rememberPinCheck');
+
+  if (!overlay || !input) return;
+
+  if (localStorage.getItem('homehub_pin_unlocked') === 'true') {
+    overlay.classList.add('hidden');
+    return;
+  }
+
+  overlay.classList.remove('hidden');
+  input.focus();
+
+  input.addEventListener('input', () => {
+    errorMsg.classList.add('hidden');
+    if (input.value.length === 4) {
+      if (input.value === HOUSEHOLD_PIN) {
+        if (rememberCheck.checked) {
+          localStorage.setItem('homehub_pin_unlocked', 'true');
+        }
+        overlay.classList.add('hidden');
+        input.value = '';
+      } else {
+        errorMsg.classList.remove('hidden');
+        input.value = '';
+      }
+    }
+  });
+}
+
+window.lockAppNow = function() {
+  localStorage.removeItem('homehub_pin_unlocked');
+  const overlay = document.getElementById('pinOverlay');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+    document.getElementById('pinInput')?.focus();
+  }
+};
+
+// ==========================================
+// 2. FIREBASE INITIALIZATION
+// ==========================================
 const firebaseConfig = {
   apiKey: "AIzaSyB2-e5VYWXTY3g5mtfIP8ivEDOvi8mZmys",
   authDomain: "home-maintenance-hub-2319d.firebaseapp.com",
@@ -20,60 +69,62 @@ let inventoryItems = [];
 let maintenanceLogs = [];
 let selectedTask = null;
 let html5QrCode = null;
+let currentTaskFilter = 'ALL';
 let currentHistoryFilter = 'ALL';
 
-// 2. ERROR REPORTING BANNER (No more silent hangs)
-function showFirebaseError(source, msg) {
-  const container = document.getElementById('taskList');
-  if (container) {
-    container.innerHTML = `
-      <div class="p-4 bg-rose-500/20 border border-rose-500/40 rounded-2xl text-xs text-rose-200 space-y-1">
-        <p class="font-bold text-rose-300">Firebase Sync Error (${source}):</p>
-        <p class="font-mono text-[11px]">${msg}</p>
-      </div>`;
-  }
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
 }
 
-// 3. REAL-TIME DATA LISTENERS (With Active Error Traps)
-db.collection('maintenance_tasks').onSnapshot(
-  (snapshot) => {
-    activeTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    renderTasks();
-    updateLinkedInventoryDropdown();
-  },
-  (error) => showFirebaseError('Tasks', error.message)
-);
+// 3. REAL-TIME DATA LISTENERS
+db.collection('maintenance_tasks').onSnapshot((snapshot) => {
+  activeTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  renderTasks();
+  updateLinkedInventoryDropdown();
+});
 
-db.collection('inventory_items').onSnapshot(
-  (snapshot) => {
-    inventoryItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    renderInventory();
-    renderTasks();
-    updateLinkedInventoryDropdown();
-  },
-  (error) => showFirebaseError('Inventory', error.message)
-);
+db.collection('inventory_items').onSnapshot((snapshot) => {
+  inventoryItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  renderInventory();
+  renderTasks();
+  updateLinkedInventoryDropdown();
+});
 
-db.collection('task_logs').onSnapshot(
-  (snapshot) => {
-    maintenanceLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    renderHistory();
-    renderTasks();
-  },
-  (error) => showFirebaseError('Logs', error.message)
-);
+db.collection('task_logs').onSnapshot((snapshot) => {
+  maintenanceLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  renderHistory();
+  renderTasks();
+});
 
-// 4. UI RENDERING: MAINTENANCE CYCLES (TASKS)
+// 4. UI RENDERING: MAINTENANCE CYCLES (WITH FILTER CHIPS)
 function renderTasks() {
   const container = document.getElementById('taskList');
   const countBadge = document.getElementById('taskCountBadge');
+  const filterBox = document.getElementById('taskFilterContainer');
   if (!container) return;
+
+  // Render Filter Chips dynamically based on actual tasks in database
+  if (filterBox) {
+    const assets = ['ALL', ...new Set(activeTasks.map(t => t.assetName).filter(Boolean))];
+    filterBox.innerHTML = assets.map(asset => `
+      <button onclick="filterTasks('${asset}')" 
+        class="task-chip px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition ${currentTaskFilter === asset ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}">
+        ${asset === 'ALL' ? 'All Systems' : asset}
+      </button>
+    `).join('');
+  }
+
+  const filtered = currentTaskFilter === 'ALL' 
+    ? activeTasks 
+    : activeTasks.filter(t => t.assetName === currentTaskFilter);
 
   if (activeTasks.length === 0) {
     container.innerHTML = `
       <div class="text-center py-10 bg-slate-800/40 rounded-2xl border border-slate-800 p-6">
         <p class="text-slate-400 text-sm">No maintenance tasks configured.</p>
-        <p class="text-xs text-slate-500 mt-1">Tap "+ Add Task" above or load standard equipment in Tools.</p>
+        <button onclick="openTaskDrawer()" class="mt-3 px-4 py-2 bg-sky-600 rounded-xl text-xs font-bold text-white">
+          + Add First Task
+        </button>
       </div>`;
     if (countBadge) countBadge.innerText = '0 Active';
     lucide.createIcons();
@@ -82,7 +133,7 @@ function renderTasks() {
 
   const now = new Date();
   if (countBadge) countBadge.innerText = `${activeTasks.length} Active`;
-  const sorted = [...activeTasks].sort((a, b) => new Date(a.nextDueDate) - new Date(b.nextDueDate));
+  const sorted = [...filtered].sort((a, b) => new Date(a.nextDueDate) - new Date(b.nextDueDate));
 
   container.innerHTML = sorted.map(task => {
     const nextDue = new Date(task.nextDueDate);
@@ -125,7 +176,7 @@ function renderTasks() {
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
             ${badge}
-            <button onclick="openTaskDrawer('${task.id}')" class="p-1 text-slate-400 hover:text-white rounded-lg bg-slate-700/50">
+            <button onclick="openTaskDrawer('${task.id}')" class="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-700/50">
               <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
             </button>
           </div>
@@ -148,7 +199,12 @@ function renderTasks() {
   lucide.createIcons();
 }
 
-// 5. UI RENDERING: SERVICE PROOF LEDGER (HISTORY)
+window.filterTasks = function(asset) {
+  currentTaskFilter = asset;
+  renderTasks();
+};
+
+// 5. UI RENDERING: SERVICE PROOF LEDGER (VAULT)
 function renderHistory() {
   const container = document.getElementById('historyList');
   const countBadge = document.getElementById('logCountBadge');
@@ -174,8 +230,8 @@ function renderHistory() {
   if (filtered.length === 0) {
     container.innerHTML = `
       <div class="text-center py-10 bg-slate-800/40 rounded-2xl border border-slate-800 p-6">
-        <p class="text-slate-400 text-sm">No service entries match filter.</p>
-        <p class="text-xs text-slate-500 mt-1">Tap "Log Service" on any maintenance task to record proof.</p>
+        <p class="text-slate-400 text-sm">No service entries recorded.</p>
+        <p class="text-xs text-slate-500 mt-1">Tap "Log Service" on any maintenance cycle to create proof.</p>
       </div>`;
     return;
   }
@@ -254,7 +310,6 @@ window.exportProofBinder = function() {
   }
 
   const sorted = [...maintenanceLogs].sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate));
-  
   const printWindow = window.open('', '_blank');
   const rows = sorted.map(log => `
     <tr style="border-bottom: 1px solid #ddd;">
@@ -338,7 +393,7 @@ function renderInventory() {
               </span>
               <p class="text-[10px] text-slate-500">Min: ${item.qtyMinPar}</p>
             </div>
-            <button onclick="openInventoryDrawer('${item.id}')" class="p-1 text-slate-400 hover:text-white rounded-lg bg-slate-700/50">
+            <button onclick="openInventoryDrawer('${item.id}')" class="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-700/50">
               <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
             </button>
           </div>
@@ -370,11 +425,12 @@ window.adjustInventory = async function(id, delta) {
   await db.collection('inventory_items').doc(id).update({ qtyOnHand: newQty });
 };
 
-// 8. TASK DRAWER (IN-APP ADD / EDIT)
+// 8. TASK DRAWER (ADD / EDIT / DUPLICATE)
 window.openTaskDrawer = function(taskId = null) {
   const drawer = document.getElementById('taskDrawer');
   const title = document.getElementById('taskDrawerTitle');
   const deleteBtn = document.getElementById('btnDeleteTask');
+  const cloneBtn = document.getElementById('btnCloneTask');
 
   updateLinkedInventoryDropdown();
 
@@ -390,6 +446,7 @@ window.openTaskDrawer = function(taskId = null) {
     document.getElementById('taskLinkedInventorySelect').value = task.linkedInventoryId || '';
     document.getElementById('taskMemoInput').value = task.memo || '';
     deleteBtn.classList.remove('hidden');
+    cloneBtn.classList.remove('hidden');
   } else {
     title.innerText = 'New Maintenance Cycle';
     document.getElementById('editTaskId').value = '';
@@ -403,6 +460,7 @@ window.openTaskDrawer = function(taskId = null) {
     document.getElementById('taskLinkedInventorySelect').value = '';
     document.getElementById('taskMemoInput').value = '';
     deleteBtn.classList.add('hidden');
+    cloneBtn.classList.add('hidden');
   }
 
   drawer.classList.remove('hidden');
@@ -421,6 +479,14 @@ window.setTaskInterval = function(days) {
   const d = new Date();
   d.setDate(d.getDate() + days);
   document.getElementById('taskNextDueInput').value = d.toISOString().split('T')[0];
+};
+
+window.cloneCurrentTask = function() {
+  document.getElementById('editTaskId').value = ''; // Clears ID so it saves as a new task
+  document.getElementById('taskTitleInput').value += ' (Copy)';
+  document.getElementById('taskDrawerTitle').innerText = 'Duplicate Task';
+  document.getElementById('btnDeleteTask').classList.add('hidden');
+  document.getElementById('btnCloneTask').classList.add('hidden');
 };
 
 window.saveTaskFromDrawer = async function() {
@@ -474,7 +540,7 @@ function updateLinkedInventoryDropdown() {
   select.value = currentVal;
 }
 
-// 9. INVENTORY DRAWER (IN-APP ADD / EDIT)
+// 9. INVENTORY DRAWER (ADD / EDIT)
 window.openInventoryDrawer = function(itemId = null) {
   const drawer = document.getElementById('inventoryDrawer');
   const title = document.getElementById('inventoryDrawerTitle');
@@ -561,13 +627,16 @@ window.deleteCurrentInventory = async function() {
   closeInventoryDrawer();
 };
 
-// 10. COMPLETE SERVICE WORKFLOW
+// 10. COMPLETE SERVICE WORKFLOW (WITH DATE FLEXIBILITY)
 window.openCompleteModal = function(taskId) {
   selectedTask = activeTasks.find(t => t.id === taskId);
   if (!selectedTask) return;
 
   document.getElementById('modalTaskTitle').innerText = selectedTask.title;
   document.getElementById('modalAssetSub').innerText = selectedTask.assetName;
+
+  // Default to today
+  setServiceDate('today');
 
   const notice = document.getElementById('modalConsumableNotice');
   const linked = inventoryItems.find(i => i.id === selectedTask.linkedInventoryId);
@@ -584,6 +653,24 @@ window.openCompleteModal = function(taskId) {
   }
 
   document.getElementById('taskModal').classList.remove('hidden');
+};
+
+window.setServiceDate = function(preset) {
+  const dateInput = document.getElementById('modalServiceDate');
+  const btnToday = document.getElementById('btnDateToday');
+  const btnYesterday = document.getElementById('btnDateYesterday');
+
+  const targetDate = new Date();
+  if (preset === 'yesterday') {
+    targetDate.setDate(targetDate.getDate() - 1);
+    btnYesterday.className = "flex-1 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold";
+    btnToday.className = "flex-1 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold";
+  } else {
+    btnToday.className = "flex-1 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold";
+    btnYesterday.className = "flex-1 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold";
+  }
+
+  dateInput.value = targetDate.toISOString().split('T')[0];
 };
 
 window.closeModal = function() {
@@ -631,9 +718,11 @@ document.getElementById('btnConfirmComplete')?.addEventListener('click', async (
   btn.disabled = true;
 
   try {
-    const today = new Date();
-    const nextDate = new Date();
-    nextDate.setDate(today.getDate() + (selectedTask.intervalDays || 30));
+    const serviceDateVal = document.getElementById('modalServiceDate').value;
+    const completedDate = serviceDateVal ? new Date(serviceDateVal) : new Date();
+
+    const nextDate = new Date(completedDate);
+    nextDate.setDate(nextDate.getDate() + (selectedTask.intervalDays || 30));
 
     let photoData = null;
     const file = document.getElementById('modalPhotoInput').files[0];
@@ -647,14 +736,14 @@ document.getElementById('btnConfirmComplete')?.addEventListener('click', async (
       taskId: selectedTask.id,
       taskTitle: selectedTask.title,
       assetName: selectedTask.assetName,
-      completedDate: today.toISOString(),
+      completedDate: completedDate.toISOString(),
       consumedPartName: linked ? linked.name : null,
       notes: document.getElementById('modalNotesInput').value,
       photoBase64: photoData
     });
 
     await db.collection('maintenance_tasks').doc(selectedTask.id).update({
-      lastCompletedDate: today.toISOString(),
+      lastCompletedDate: completedDate.toISOString(),
       nextDueDate: nextDate.toISOString()
     });
 
@@ -837,8 +926,9 @@ document.getElementById('btnSeedData')?.addEventListener('click', async () => {
   switchTab('tasks');
 });
 
-// 15. IMMEDIATE INITIAL RENDER (Never wait on network)
+// 15. INITIALIZATION
 renderTasks();
 renderInventory();
 renderHistory();
 lucide.createIcons();
+initPinLock();
