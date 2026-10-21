@@ -1,0 +1,17 @@
+{
+  "short_name": "Home Hub",
+  "name": "Home Maintenance & Inventory Hub",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/619/619034.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#0F172A",
+  "theme_color": "#0F172A",
+  "display": "standalone",
+  "orientation": "portrait"
+}
